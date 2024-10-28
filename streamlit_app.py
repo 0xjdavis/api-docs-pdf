@@ -21,42 +21,70 @@ def create_custom_styles():
         spaceBefore=10,
         alignment=TA_LEFT
     )
+    
+    # Create custom list styles
+    unordered_list_style = ParagraphStyle(
+        'UnorderedList',
+        parent=styles['Normal'],
+        leftIndent=35,
+        bulletIndent=20,
+        spaceAfter=5,
+        bulletFontName='Symbol',
+    )
+    
+    ordered_list_style = ParagraphStyle(
+        'OrderedList',
+        parent=styles['Normal'],
+        leftIndent=35,
+        bulletIndent=20,
+        spaceAfter=5,
+    )
+    
     styles.add(code_style)
+    styles.add(unordered_list_style)
+    styles.add(ordered_list_style)
     return styles
 
 def process_code_block(code_text):
-    # Split the code into lines and add line breaks
     lines = code_text.strip().split('\n')
-    # Join lines with explicit line breaks and proper spacing
     formatted_code = '<br/>'.join(line.strip() for line in lines if line.strip())
     return f'<pre>{formatted_code}</pre>'
 
 def clean_heading_text(text):
-    # Remove the "#" symbol that appears after headings
     return text.split('#')[0].strip()
+
+def process_list_items(list_element, ordered=False):
+    items = []
+    for i, item in enumerate(list_element.find_all('li', recursive=False)):
+        bullet = f"{i+1}." if ordered else "•"
+        text = item.get_text().strip()
+        # Handle nested lists
+        nested_lists = item.find_all(['ul', 'ol'], recursive=False)
+        if nested_lists:
+            text += '<br/>' + '<br/>'.join(
+                process_list_items(nested_list, isinstance(nested_list, 'ol'))
+                for nested_list in nested_lists
+            )
+        items.append(f"{bullet} {text}")
+    return items
 
 def export_llamaindex_docs_to_pdf(url):
     try:
-        # Fetch the HTML content
         response = requests.get(url)
         response.raise_for_status()
         html_content = response.text
 
-        # Parse HTML content
         soup = BeautifulSoup(html_content, 'html.parser')
         main_content = soup.find('div', class_='md-content')
 
-        # Create PDF
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=letter)
         styles = create_custom_styles()
         story = []
 
-        # Keep track of processed code elements
         seen_elements = set()
 
         def process_element(element):
-            # Generate a unique identifier for the element
             element_id = id(element)
             
             if element_id in seen_elements:
@@ -66,30 +94,42 @@ def export_llamaindex_docs_to_pdf(url):
             
             if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
                 style = styles['Heading' + element.name[1]]
-                # Clean heading text before creating paragraph
                 clean_text = clean_heading_text(element.get_text())
                 return Paragraph(clean_text, style)
+            
             elif element.name == 'code':
-                # Special handling for code blocks with line breaks
                 formatted_code = process_code_block(element.get_text())
                 return Paragraph(formatted_code, styles['CodeStyle'])
+            
+            elif element.name == 'ul':
+                items = process_list_items(element, ordered=False)
+                return [Paragraph(item, styles['UnorderedList']) for item in items]
+            
+            elif element.name == 'ol':
+                items = process_list_items(element, ordered=True)
+                return [Paragraph(item, styles['OrderedList']) for item in items]
+            
             elif element.name in ['p', 'div']:
                 style = styles['Normal']
-                return Paragraph(element.get_text().strip(), style)
+                text = element.get_text().strip()
+                if text:  # Only create paragraph if there's actual text
+                    return Paragraph(text, style)
+            
             return None
 
-        # Process all elements while avoiding duplicates
-        for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'code']):
-            paragraph = process_element(element)
-            if paragraph:
-                story.append(paragraph)
-                # Add space after each element
+        for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'code', 'ul', 'ol']):
+            result = process_element(element)
+            if result:
+                if isinstance(result, list):
+                    story.extend(result)
+                else:
+                    story.append(result)
                 story.append(Spacer(1, 6))
 
-        # Build PDF
         doc.build(story)
         buffer.seek(0)
         return buffer
+    
     except requests.RequestException as e:
         raise Exception(f"Failed to fetch the webpage: {str(e)}")
     except Exception as e:
