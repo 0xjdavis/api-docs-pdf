@@ -3,18 +3,17 @@ import requests
 import base64
 import io
 import emoji
-from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
-from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
+from bs4 import BeautifulSoup
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from bs4 import BeautifulSoup
 
 # Define custom blue color
 CUSTOM_BLUE = colors.HexColor('#0068c9')
-
 def remove_emojis(text):
     """Remove emojis from text."""
     return emoji.replace_emoji(text, '')
@@ -126,6 +125,7 @@ def process_list_items(list_element, ordered=False):
             
     return result
 
+
 def process_links(element):
     """Process anchor tags and span elements with styles."""
     text = ""
@@ -137,9 +137,11 @@ def process_links(element):
                 href = content.get('href', '')
                 link_text = content.get_text()
                 if href.startswith('#'):
-                    text += f'<link href="{href[1:]}" color="{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
+                    # Internal link with custom color - include # prefix
+                    text += f'<link href="{href[1:]}" color="#{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
                 else:
-                    text += f'<link href="{href}" color="{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
+                    # External link with custom color - include # prefix
+                    text += f'<link href="{href}" color="#{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
             elif content.name == 'span':
                 span_text = content.get_text()
                 style = content.get('style', '')
@@ -155,6 +157,7 @@ def process_links(element):
     except AttributeError:
         text += str(content)
     return text
+
 
 def export_llamaindex_docs_to_pdf(url):
     try:
