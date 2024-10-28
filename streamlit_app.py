@@ -10,7 +10,8 @@ from reportlab.lib.enums import TA_LEFT
 from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from bs4 import BeautifulSoup
+
+
 
 # Define custom blue color
 CUSTOM_BLUE = colors.HexColor('#0068c9')
@@ -32,7 +33,7 @@ def create_custom_styles():
             spaceAfter=10,
             spaceBefore=10,
             alignment=TA_LEFT,
-            backColor=colors.Color(0.95, 0.95, 0.95)  # Light gray background
+            backColor=colors.Color(0.95, 0.95, 0.95)
         )
         styles.add(code_style)
     
@@ -79,14 +80,11 @@ class DocumentWithBookmarks(BaseDocTemplate):
 
 def clean_code_block(code_text):
     """Clean and format code block text."""
-    # Remove extra whitespace and normalize line endings
     lines = [line.rstrip() for line in code_text.strip().split('\n')]
-    # Remove empty lines at start and end while preserving internal empty lines
     while lines and not lines[0].strip():
         lines.pop(0)
     while lines and not lines[-1].strip():
         lines.pop()
-    # Join lines with proper spacing
     return '\n'.join(lines)
 
 def process_code_block(code_text):
@@ -94,7 +92,6 @@ def process_code_block(code_text):
     cleaned_code = clean_code_block(code_text)
     if not cleaned_code:
         return ''
-    # Escape special characters and preserve formatting
     escaped_code = (cleaned_code
                    .replace('&', '&amp;')
                    .replace('<', '&lt;')
@@ -131,8 +128,8 @@ def process_links(element):
     text = ""
     try:
         for content in element.contents:
-            if isinstance(content, str):
-                text += content
+            if isinstance(content, NavigableString):
+                text += str(content)
             elif content.name == 'a':
                 href = content.get('href', '')
                 link_text = content.get_text()
@@ -148,13 +145,22 @@ def process_links(element):
                 else:
                     text += span_text
             elif content.name in ['pre', 'code']:
-                # Skip code blocks here as they'll be handled separately
                 continue
             else:
                 text += content.get_text()
     except AttributeError:
         text += str(content)
     return text
+
+def get_text_content(element):
+    """Extract text content from element, excluding code blocks."""
+    text = ""
+    for content in element.contents:
+        if isinstance(content, NavigableString):
+            text += str(content)
+        elif content.name not in ['pre', 'code']:
+            text += content.get_text()
+    return text.strip()
 
 def export_llamaindex_docs_to_pdf(url):
     try:
@@ -168,7 +174,6 @@ def export_llamaindex_docs_to_pdf(url):
             raise Exception("Could not find main content div")
 
         buffer = io.BytesIO()
-        
         doc = DocumentWithBookmarks(buffer, pagesize=letter)
         frame = Frame(doc.leftMargin, doc.bottomMargin,
                      doc.width, doc.height,
@@ -179,13 +184,7 @@ def export_llamaindex_docs_to_pdf(url):
         styles = create_custom_styles()
         story = []
         seen_elements = set()
-        seen_code_blocks = set()  # Track processed code blocks
-
-        def get_code_block_content(element):
-            """Extract unique content from code block."""
-            if element.name in ['pre', 'code']:
-                return element.get_text().strip()
-            return None
+        seen_code_blocks = set()
 
         def process_element(element):
             element_id = id(element)
@@ -195,15 +194,7 @@ def export_llamaindex_docs_to_pdf(url):
                 
             seen_elements.add(element_id)
             
-            # Handle code blocks first
-            if element.name in ['pre', 'code']:
-                code_content = get_code_block_content(element)
-                if code_content and code_content not in seen_code_blocks:
-                    seen_code_blocks.add(code_content)
-                    formatted_code = process_code_block(code_content)
-                    if formatted_code:
-                        return [Paragraph(formatted_code, styles['CodeStyle'])]
-                return []
+            paragraphs = []
             
             # Handle headings
             if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
@@ -213,38 +204,44 @@ def export_llamaindex_docs_to_pdf(url):
                 if 'id' in element.attrs:
                     p.bookmark_key = element['id']
                     p.bookmark_level = int(element.name[1])
-                return [p]
+                paragraphs.append(p)
+            
+            # Handle code blocks
+            elif element.name in ['pre', 'code']:
+                code_content = element.get_text().strip()
+                if code_content and code_content not in seen_code_blocks:
+                    seen_code_blocks.add(code_content)
+                    formatted_code = process_code_block(code_content)
+                    if formatted_code:
+                        paragraphs.append(Paragraph(formatted_code, styles['CodeStyle']))
             
             # Handle lists
             elif element.name == 'ul':
                 items = process_list_items(element, ordered=False)
-                return [Paragraph(item, styles['CustomUnorderedList']) for item in items]
+                paragraphs.extend([Paragraph(item, styles['CustomUnorderedList']) for item in items])
             
             elif element.name == 'ol':
                 items = process_list_items(element, ordered=True)
-                return [Paragraph(item, styles['CustomOrderedList']) for item in items]
+                paragraphs.extend([Paragraph(item, styles['CustomOrderedList']) for item in items])
             
             # Handle paragraphs and divs
             elif element.name in ['p', 'div']:
-                # Check if this element contains a code block
+                # Process text content
+                text_content = process_links(element)
+                if text_content.strip():
+                    paragraphs.append(Paragraph(text_content, styles['Normal']))
+                
+                # Process code blocks separately
                 code_blocks = element.find_all(['pre', 'code'])
-                if code_blocks:
-                    paragraphs = []
-                    for code_block in code_blocks:
-                        code_content = get_code_block_content(code_block)
-                        if code_content and code_content not in seen_code_blocks:
-                            seen_code_blocks.add(code_content)
-                            formatted_code = process_code_block(code_content)
-                            if formatted_code:
-                                paragraphs.append(Paragraph(formatted_code, styles['CodeStyle']))
-                    return paragraphs
-                else:
-                    text = process_links(element)
-                    text = remove_emojis(text)
-                    if text.strip():
-                        return [Paragraph(text, styles['Normal'])]
+                for code_block in code_blocks:
+                    code_content = code_block.get_text().strip()
+                    if code_content and code_content not in seen_code_blocks:
+                        seen_code_blocks.add(code_content)
+                        formatted_code = process_code_block(code_content)
+                        if formatted_code:
+                            paragraphs.append(Paragraph(formatted_code, styles['CodeStyle']))
             
-            return []
+            return paragraphs
 
         # Process all elements
         for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'pre', 'code']):
