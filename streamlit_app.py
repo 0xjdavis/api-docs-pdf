@@ -164,9 +164,11 @@ def process_links(element):
                 escaped_href = html.escape(href)
                 escaped_text = html.escape(link_text)
                 if href.startswith('#'):
-                    text += f'<link href="{escaped_href[1:]}" color="#{CUSTOM_BLUE.hexval()[2:]}" underline="true">{escaped_text}</link>'
+                    # Internal link (anchor)
+                    text += f'<a href="#{escaped_href[1:]}" color="{CUSTOM_BLUE.hexval()[2:]}" underline="1">{escaped_text}</a>'
                 else:
-                    text += f'<link href="{escaped_href}" color="#{CUSTOM_BLUE.hexval()[2:]}" underline="true">{escaped_text}</link>'
+                    # External link
+                    text += f'<a href="{escaped_href}" color="{CUSTOM_BLUE.hexval()[2:]}" underline="1">{escaped_text}</a>'
             elif content.name == 'span':
                 span_text = content.get_text()
                 style = content.get('style', '')
@@ -179,7 +181,7 @@ def process_links(element):
             else:
                 text += process_links(content)
     except AttributeError:
-        text += html.escape(str(element))
+        text += html.escape(str(content))
     return text
 
 def export_llamaindex_docs_to_pdf(url):
