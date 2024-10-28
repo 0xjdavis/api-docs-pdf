@@ -2,11 +2,16 @@ import streamlit as st
 import requests 
 import base64
 import io
+import emoji
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
 from bs4 import BeautifulSoup
+
+def remove_emojis(text):
+    """Remove emojis from text."""
+    return emoji.replace_emoji(text, '')
 
 def create_custom_styles():
     styles = getSampleStyleSheet()
@@ -53,13 +58,14 @@ def process_code_block(code_text):
     return f'<pre>{formatted_code}</pre>'
 
 def clean_heading_text(text):
+    text = remove_emojis(text)
     return text.split('#')[0].strip()
 
 def process_list_items(list_element, ordered=False):
     result = []
     for i, item in enumerate(list_element.find_all('li', recursive=False)):
         bullet = f"{i+1}." if ordered else "•"
-        text = item.get_text().strip()
+        text = remove_emojis(item.get_text().strip())
         
         # Handle nested lists
         nested_lists = item.find_all(['ul', 'ol'], recursive=False)
@@ -119,7 +125,7 @@ def export_llamaindex_docs_to_pdf(url):
                 return [Paragraph(item, styles['CustomOrderedList']) for item in items]
             
             elif element.name in ['p', 'div']:
-                text = element.get_text().strip()
+                text = remove_emojis(element.get_text().strip())
                 if text:
                     return [Paragraph(text, styles['Normal'])]
             
