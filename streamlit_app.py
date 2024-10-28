@@ -23,7 +23,7 @@ def export_llamaindex_docs_to_pdf(url):
     story = []
 
     # Extract text and add to PDF
-    for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'pre', 'code']):
+    for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'pre', 'code']):
         if element.name.startswith('h'):
             style = styles['Heading' + element.name[1]]
         else:
