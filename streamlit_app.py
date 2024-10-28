@@ -20,6 +20,11 @@ def remove_emojis(text):
     """Remove emojis from text."""
     return emoji.replace_emoji(text, '')
 
+def clean_heading_text(text):
+    """Clean heading text by removing emojis and extra whitespace."""
+    text = remove_emojis(text)
+    return text.split('#')[0].strip()
+
 def create_custom_styles():
     styles = getSampleStyleSheet()
     
@@ -127,7 +132,28 @@ def process_list_items(list_element, level=1):
     
     return result
 
-def export_llamaindex_docs_to_pdf(url):
+def clean_code_block(code_text):
+    """Clean and format code block text."""
+    lines = [line.rstrip() for line in code_text.strip().split('\n')]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return '\n'.join(lines)
+
+def process_code_block(code_text):
+    """Process a code block with proper formatting."""
+    cleaned_code = clean_code_block(code_text)
+    if not cleaned_code:
+        return ''
+    escaped_code = (cleaned_code
+                   .replace('&', '&amp;')
+                   .replace('<', '&lt;')
+                   .replace('>', '&gt;')
+                   .replace('\n', '<br/>'))
+    return f'<pre>{escaped_code}</pre>'
+
+def export_to_pdf(url):
     try:
         response = requests.get(url)
         response.raise_for_status()
@@ -210,15 +236,15 @@ def get_binary_file_downloader_html(bin_file, file_label='File'):
     href = f'<a href="data:application/octet-stream;base64,{bin_str}" download="{file_label}">Download {file_label}</a>'
     return href
 
-st.title("LlamaIndex Documentation PDF Generator")
+st.title("Documentation PDF Generator")
 
 url = st.text_input("Enter URL", "https://docs.llamaindex.ai/en/stable/")
-st.write(f"This app generates a PDF from the documentation at the provided URL.")
+st.write("This app generates a PDF from the documentation at the provided URL.")
 
 if st.button("Generate PDF"):
     try:
         with st.spinner("Generating PDF..."):
-            pdf_buffer = export_llamaindex_docs_to_pdf(url)
+            pdf_buffer = export_to_pdf(url)
             
         st.success("PDF generated successfully!")
         st.markdown(
