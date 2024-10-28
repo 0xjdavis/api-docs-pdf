@@ -8,9 +8,12 @@ from reportlab.lib import colors
 from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
-from bs4 import BeautifulSoup
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from bs4 import BeautifulSoup
+
+# Define custom blue color
+CUSTOM_BLUE = colors.HexColor('#0068c9')
 
 def remove_emojis(text):
     """Remove emojis from text."""
@@ -57,7 +60,7 @@ def create_custom_styles():
         link_style = ParagraphStyle(
             'LinkStyle',
             parent=styles['Normal'],
-            textColor=colors.blue,
+            textColor=CUSTOM_BLUE,  # Using our custom blue color
             underline=True
         )
         styles.add(link_style)
@@ -123,9 +126,11 @@ def process_links(element):
                 href = content.get('href', '')
                 link_text = content.get_text()
                 if href.startswith('#'):
-                    text += f'<link href="{href[1:]}">{link_text}</link>'
+                    # Internal link with custom color
+                    text += f'<link href="{href[1:]}" color="{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
                 else:
-                    text += f'<link href="{href}">{link_text}</link>'
+                    # External link with custom color
+                    text += f'<link href="{href}" color="{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
             elif content.name == 'span':
                 span_text = content.get_text()
                 style = content.get('style', '')
