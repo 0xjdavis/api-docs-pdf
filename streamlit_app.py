@@ -66,7 +66,10 @@ def process_list_items(list_element, ordered=False):
         nested_lists = item.find_all(['ul', 'ol'], recursive=False)
         if nested_lists:
             text += '<br/>' + '<br/>'.join(
-                process_list_items(nested_list, isinstance(nested_list, 'ol'))
+                process_list_items(
+                    nested_list, 
+                    ordered=(nested_list.name == 'ol')
+                )
                 for nested_list in nested_lists
             )
         items.append(f"{bullet} {text}")
