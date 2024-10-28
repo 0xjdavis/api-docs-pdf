@@ -3,17 +3,18 @@ import requests
 import base64
 import io
 import emoji
-from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
+from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
-from bs4 import BeautifulSoup
+from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from bs4 import BeautifulSoup
 
 # Define custom blue color
 CUSTOM_BLUE = colors.HexColor('#0068c9')
+
 def remove_emojis(text):
     """Remove emojis from text."""
     return emoji.replace_emoji(text, '')
@@ -125,7 +126,6 @@ def process_list_items(list_element, ordered=False):
             
     return result
 
-
 def process_links(element):
     """Process anchor tags and span elements with styles."""
     text = ""
@@ -137,10 +137,8 @@ def process_links(element):
                 href = content.get('href', '')
                 link_text = content.get_text()
                 if href.startswith('#'):
-                    # Internal link with custom color - include # prefix
                     text += f'<link href="{href[1:]}" color="#{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
                 else:
-                    # External link with custom color - include # prefix
                     text += f'<link href="{href}" color="#{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
             elif content.name == 'span':
                 span_text = content.get_text()
@@ -157,7 +155,6 @@ def process_links(element):
     except AttributeError:
         text += str(content)
     return text
-
 
 def export_llamaindex_docs_to_pdf(url):
     try:
@@ -182,6 +179,13 @@ def export_llamaindex_docs_to_pdf(url):
         styles = create_custom_styles()
         story = []
         seen_elements = set()
+        seen_code_blocks = set()  # Track processed code blocks
+
+        def get_code_block_content(element):
+            """Extract unique content from code block."""
+            if element.name in ['pre', 'code']:
+                return element.get_text().strip()
+            return None
 
         def process_element(element):
             element_id = id(element)
@@ -191,6 +195,17 @@ def export_llamaindex_docs_to_pdf(url):
                 
             seen_elements.add(element_id)
             
+            # Handle code blocks first
+            if element.name in ['pre', 'code']:
+                code_content = get_code_block_content(element)
+                if code_content and code_content not in seen_code_blocks:
+                    seen_code_blocks.add(code_content)
+                    formatted_code = process_code_block(code_content)
+                    if formatted_code:
+                        return [Paragraph(formatted_code, styles['CodeStyle'])]
+                return []
+            
+            # Handle headings
             if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
                 style = styles['Heading' + element.name[1]]
                 clean_text = clean_heading_text(element.get_text())
@@ -200,14 +215,7 @@ def export_llamaindex_docs_to_pdf(url):
                     p.bookmark_level = int(element.name[1])
                 return [p]
             
-            elif element.name in ['pre', 'code']:
-                # Handle code blocks
-                code_text = element.get_text()
-                formatted_code = process_code_block(code_text)
-                if formatted_code:
-                    return [Paragraph(formatted_code, styles['CodeStyle'])]
-                return []
-            
+            # Handle lists
             elif element.name == 'ul':
                 items = process_list_items(element, ordered=False)
                 return [Paragraph(item, styles['CustomUnorderedList']) for item in items]
@@ -216,15 +224,19 @@ def export_llamaindex_docs_to_pdf(url):
                 items = process_list_items(element, ordered=True)
                 return [Paragraph(item, styles['CustomOrderedList']) for item in items]
             
+            # Handle paragraphs and divs
             elif element.name in ['p', 'div']:
-                # Skip if this element contains a code block
-                if element.find(['pre', 'code']):
-                    code_blocks = element.find_all(['pre', 'code'])
+                # Check if this element contains a code block
+                code_blocks = element.find_all(['pre', 'code'])
+                if code_blocks:
                     paragraphs = []
                     for code_block in code_blocks:
-                        formatted_code = process_code_block(code_block.get_text())
-                        if formatted_code:
-                            paragraphs.append(Paragraph(formatted_code, styles['CodeStyle']))
+                        code_content = get_code_block_content(code_block)
+                        if code_content and code_content not in seen_code_blocks:
+                            seen_code_blocks.add(code_content)
+                            formatted_code = process_code_block(code_content)
+                            if formatted_code:
+                                paragraphs.append(Paragraph(formatted_code, styles['CodeStyle']))
                     return paragraphs
                 else:
                     text = process_links(element)
@@ -236,10 +248,18 @@ def export_llamaindex_docs_to_pdf(url):
 
         # Process all elements
         for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'pre', 'code']):
-            paragraphs = process_element(element)
-            if paragraphs:
-                story.extend(paragraphs)
-                story.append(Spacer(1, 6))
+            # Skip if element is a child of a processed element
+            parent_processed = False
+            for parent in element.parents:
+                if id(parent) in seen_elements:
+                    parent_processed = True
+                    break
+            
+            if not parent_processed:
+                paragraphs = process_element(element)
+                if paragraphs:
+                    story.extend(paragraphs)
+                    story.append(Spacer(1, 6))
 
         doc.build(story)
         buffer.seek(0)
