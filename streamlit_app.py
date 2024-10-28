@@ -31,6 +31,10 @@ def process_code_block(code_text):
     formatted_code = '<br/>'.join(line.strip() for line in lines if line.strip())
     return f'<pre>{formatted_code}</pre>'
 
+def clean_heading_text(text):
+    # Remove the "#" symbol that appears after headings
+    return text.split('#')[0].strip()
+
 def export_llamaindex_docs_to_pdf(url):
     try:
         # Fetch the HTML content
@@ -62,7 +66,9 @@ def export_llamaindex_docs_to_pdf(url):
             
             if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
                 style = styles['Heading' + element.name[1]]
-                return Paragraph(element.get_text().strip(), style)
+                # Clean heading text before creating paragraph
+                clean_text = clean_heading_text(element.get_text())
+                return Paragraph(clean_text, style)
             elif element.name == 'code':
                 # Special handling for code blocks with line breaks
                 formatted_code = process_code_block(element.get_text())
