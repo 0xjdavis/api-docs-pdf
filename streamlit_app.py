@@ -5,10 +5,12 @@ import io
 import emoji
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
 from bs4 import BeautifulSoup
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 def remove_emojis(text):
     """Remove emojis from text."""
@@ -21,7 +23,7 @@ def create_custom_styles():
         code_style = ParagraphStyle(
             'CodeStyle',
             parent=styles['Normal'],
-            fontName='Courier',
+            fontName='Helvetica',
             fontSize=10,
             leftIndent=20,
             spaceAfter=10,
@@ -37,7 +39,7 @@ def create_custom_styles():
             leftIndent=35,
             bulletIndent=20,
             spaceAfter=5,
-            bulletFontName='Symbol',
+            bulletFontName='Helvetica',
         )
         styles.add(unordered_list_style)
     
@@ -64,13 +66,22 @@ def create_custom_styles():
         large_text_style = ParagraphStyle(
             'LargeText',
             parent=styles['Normal'],
-            fontSize=16,  # Increased font size
+            fontSize=16,
             spaceAfter=10,
             spaceBefore=10
         )
         styles.add(large_text_style)
     
     return styles
+
+class DocumentWithBookmarks(BaseDocTemplate):
+    def __init__(self, filename, **kwargs):
+        super().__init__(filename, **kwargs)
+        self.bookmarks = []
+        
+    def afterFlowable(self, flowable):
+        if getattr(flowable, 'bookmark_key', None) is not None:
+            self.bookmarks.append((flowable.bookmark_level, flowable.bookmark_key, self.page))
 
 def process_code_block(code_text):
     lines = code_text.strip().split('\n')
@@ -86,7 +97,6 @@ def process_list_items(list_element, ordered=False):
     for i, item in enumerate(list_element.find_all('li', recursive=False)):
         bullet = f"{i+1}." if ordered else "•"
         
-        # Process each paragraph in the list item separately
         paragraphs = item.find_all('p')
         if paragraphs:
             for p in paragraphs:
@@ -118,7 +128,6 @@ def process_links(element):
                     text += f'<link href="{href}">{link_text}</link>'
             elif content.name == 'span':
                 span_text = content.get_text()
-                # Check if span has a style attribute with font-size
                 style = content.get('style', '')
                 if 'font-size: 200%' in style:
                     text += f'<font size="14">{span_text}</font>'
@@ -127,7 +136,6 @@ def process_links(element):
             else:
                 text += content.get_text()
     except AttributeError:
-        # Handle case where content doesn't have expected attributes
         text += str(content)
     return text
 
@@ -143,12 +151,19 @@ def export_llamaindex_docs_to_pdf(url):
             raise Exception("Could not find main content div")
 
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        
+        # Create custom document template with bookmarks support
+        doc = DocumentWithBookmarks(buffer, pagesize=letter)
+        frame = Frame(doc.leftMargin, doc.bottomMargin,
+                     doc.width, doc.height,
+                     id='normal')
+        template = PageTemplate(id='main', frames=frame)
+        doc.addPageTemplates([template])
+        
         styles = create_custom_styles()
         story = []
 
         seen_elements = set()
-        bookmarks = {}
 
         def process_element(element):
             element_id = id(element)
@@ -161,9 +176,11 @@ def export_llamaindex_docs_to_pdf(url):
             if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
                 style = styles['Heading' + element.name[1]]
                 clean_text = clean_heading_text(element.get_text())
+                p = Paragraph(clean_text, style)
                 if 'id' in element.attrs:
-                    bookmarks[element['id']] = len(story)
-                return [Paragraph(clean_text, style)]
+                    p.bookmark_key = element['id']
+                    p.bookmark_level = int(element.name[1])
+                return [p]
             
             elif element.name == 'code':
                 formatted_code = process_code_block(element.get_text())
@@ -192,7 +209,7 @@ def export_llamaindex_docs_to_pdf(url):
                 story.extend(paragraphs)
                 story.append(Spacer(1, 6))
 
-        doc.build(story, bookmarks=bookmarks)
+        doc.build(story)
         buffer.seek(0)
         return buffer
     
