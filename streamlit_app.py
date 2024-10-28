@@ -127,10 +127,10 @@ def process_links(element):
                 link_text = content.get_text()
                 if href.startswith('#'):
                     # Internal link with custom color
-                    text += f'<link href="{href[1:]}" color="{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
+                    text += f'<link href="{href[1:]}" color="#0068c9">{link_text}</link>'
                 else:
                     # External link with custom color
-                    text += f'<link href="{href}" color="{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
+                    text += f'<link href="{href}" color="#0068c9">{link_text}</link>'
             elif content.name == 'span':
                 span_text = content.get_text()
                 style = content.get('style', '')
