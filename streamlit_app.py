@@ -10,8 +10,7 @@ from reportlab.lib.enums import TA_LEFT
 from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-
-
+from bs4 import BeautifulSoup, NavigableString
 
 # Define custom blue color
 CUSTOM_BLUE = colors.HexColor('#0068c9')
