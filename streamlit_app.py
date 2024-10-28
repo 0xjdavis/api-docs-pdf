@@ -10,39 +10,43 @@ from bs4 import BeautifulSoup
 
 def create_custom_styles():
     styles = getSampleStyleSheet()
-    # Create custom code style
-    code_style = ParagraphStyle(
-        'CodeStyle',
-        parent=styles['Normal'],
-        fontName='Courier',
-        fontSize=10,
-        leftIndent=20,
-        spaceAfter=10,
-        spaceBefore=10,
-        alignment=TA_LEFT
-    )
     
-    # Create custom list styles
-    unordered_list_style = ParagraphStyle(
-        'UnorderedList',
-        parent=styles['Normal'],
-        leftIndent=35,
-        bulletIndent=20,
-        spaceAfter=5,
-        bulletFontName='Symbol',
-    )
+    # Only add styles if they don't exist
+    if 'CodeStyle' not in styles:
+        code_style = ParagraphStyle(
+            'CodeStyle',
+            parent=styles['Normal'],
+            fontName='Courier',
+            fontSize=10,
+            leftIndent=20,
+            spaceAfter=10,
+            spaceBefore=10,
+            alignment=TA_LEFT
+        )
+        styles.add(code_style)
     
-    ordered_list_style = ParagraphStyle(
-        'OrderedList',
-        parent=styles['Normal'],
-        leftIndent=35,
-        bulletIndent=20,
-        spaceAfter=5,
-    )
+    # Create list styles only if they don't exist
+    if 'CustomUnorderedList' not in styles:
+        unordered_list_style = ParagraphStyle(
+            'CustomUnorderedList',
+            parent=styles['Normal'],
+            leftIndent=35,
+            bulletIndent=20,
+            spaceAfter=5,
+            bulletFontName='Symbol',
+        )
+        styles.add(unordered_list_style)
     
-    styles.add(code_style)
-    styles.add(unordered_list_style)
-    styles.add(ordered_list_style)
+    if 'CustomOrderedList' not in styles:
+        ordered_list_style = ParagraphStyle(
+            'CustomOrderedList',
+            parent=styles['Normal'],
+            leftIndent=35,
+            bulletIndent=20,
+            spaceAfter=5,
+        )
+        styles.add(ordered_list_style)
+    
     return styles
 
 def process_code_block(code_text):
@@ -103,11 +107,11 @@ def export_llamaindex_docs_to_pdf(url):
             
             elif element.name == 'ul':
                 items = process_list_items(element, ordered=False)
-                return [Paragraph(item, styles['UnorderedList']) for item in items]
+                return [Paragraph(item, styles['CustomUnorderedList']) for item in items]
             
             elif element.name == 'ol':
                 items = process_list_items(element, ordered=True)
-                return [Paragraph(item, styles['OrderedList']) for item in items]
+                return [Paragraph(item, styles['CustomOrderedList']) for item in items]
             
             elif element.name in ['p', 'div']:
                 style = styles['Normal']
