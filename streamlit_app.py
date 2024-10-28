@@ -1,6 +1,7 @@
 import streamlit as st
 import requests 
-import base64 
+import base64
+import io
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
