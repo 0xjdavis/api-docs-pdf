@@ -3,17 +3,17 @@ import requests
 import base64
 import io
 import emoji
-from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
+from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
+from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from bs4 import BeautifulSoup
 
 # Define custom blue color
-#CUSTOM_BLUE = colors.HexColor('#0068c9')
+CUSTOM_BLUE = colors.HexColor('#0068c9')
 
 def remove_emojis(text):
     """Remove emojis from text."""
@@ -26,12 +26,13 @@ def create_custom_styles():
         code_style = ParagraphStyle(
             'CodeStyle',
             parent=styles['Normal'],
-            fontName='Helvetica',
+            fontName='Courier',
             fontSize=10,
             leftIndent=20,
             spaceAfter=10,
             spaceBefore=10,
-            alignment=TA_LEFT
+            alignment=TA_LEFT,
+            backColor=colors.Color(0.95, 0.95, 0.95)  # Light gray background
         )
         styles.add(code_style)
     
@@ -60,20 +61,10 @@ def create_custom_styles():
         link_style = ParagraphStyle(
             'LinkStyle',
             parent=styles['Normal'],
-            textColor="#0068c9",  # Using our custom blue color
+            textColor=CUSTOM_BLUE,
             underline=True
         )
         styles.add(link_style)
-    
-    if 'LargeText' not in styles:
-        large_text_style = ParagraphStyle(
-            'LargeText',
-            parent=styles['Normal'],
-            fontSize=16,
-            spaceAfter=10,
-            spaceBefore=10
-        )
-        styles.add(large_text_style)
     
     return styles
 
@@ -86,10 +77,30 @@ class DocumentWithBookmarks(BaseDocTemplate):
         if getattr(flowable, 'bookmark_key', None) is not None:
             self.bookmarks.append((flowable.bookmark_level, flowable.bookmark_key, self.page))
 
+def clean_code_block(code_text):
+    """Clean and format code block text."""
+    # Remove extra whitespace and normalize line endings
+    lines = [line.rstrip() for line in code_text.strip().split('\n')]
+    # Remove empty lines at start and end while preserving internal empty lines
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    # Join lines with proper spacing
+    return '\n'.join(lines)
+
 def process_code_block(code_text):
-    lines = code_text.strip().split('\n')
-    formatted_code = '<br/>'.join(line.strip() for line in lines if line.strip())
-    return f'<pre>{formatted_code}</pre>'
+    """Process a code block with proper formatting."""
+    cleaned_code = clean_code_block(code_text)
+    if not cleaned_code:
+        return ''
+    # Escape special characters and preserve formatting
+    escaped_code = (cleaned_code
+                   .replace('&', '&amp;')
+                   .replace('<', '&lt;')
+                   .replace('>', '&gt;')
+                   .replace('\n', '<br/>'))
+    return f'<pre>{escaped_code}</pre>'
 
 def clean_heading_text(text):
     text = remove_emojis(text)
@@ -126,11 +137,9 @@ def process_links(element):
                 href = content.get('href', '')
                 link_text = content.get_text()
                 if href.startswith('#'):
-                    # Internal link with custom color
-                    text += f'<link href="{href[1:]}" color="#0068c9">{link_text}</link>'
+                    text += f'<link href="{href[1:]}" color="{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
                 else:
-                    # External link with custom color
-                    text += f'<link href="{href}" color="#0068c9">{link_text}</link>'
+                    text += f'<link href="{href}" color="{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
             elif content.name == 'span':
                 span_text = content.get_text()
                 style = content.get('style', '')
@@ -138,6 +147,9 @@ def process_links(element):
                     text += f'<font size="14">{span_text}</font>'
                 else:
                     text += span_text
+            elif content.name in ['pre', 'code']:
+                # Skip code blocks here as they'll be handled separately
+                continue
             else:
                 text += content.get_text()
     except AttributeError:
@@ -157,7 +169,6 @@ def export_llamaindex_docs_to_pdf(url):
 
         buffer = io.BytesIO()
         
-        # Create custom document template with bookmarks support
         doc = DocumentWithBookmarks(buffer, pagesize=letter)
         frame = Frame(doc.leftMargin, doc.bottomMargin,
                      doc.width, doc.height,
@@ -167,7 +178,6 @@ def export_llamaindex_docs_to_pdf(url):
         
         styles = create_custom_styles()
         story = []
-
         seen_elements = set()
 
         def process_element(element):
@@ -187,9 +197,13 @@ def export_llamaindex_docs_to_pdf(url):
                     p.bookmark_level = int(element.name[1])
                 return [p]
             
-            elif element.name == 'code':
-                formatted_code = process_code_block(element.get_text())
-                return [Paragraph(formatted_code, styles['CodeStyle'])]
+            elif element.name in ['pre', 'code']:
+                # Handle code blocks
+                code_text = element.get_text()
+                formatted_code = process_code_block(code_text)
+                if formatted_code:
+                    return [Paragraph(formatted_code, styles['CodeStyle'])]
+                return []
             
             elif element.name == 'ul':
                 items = process_list_items(element, ordered=False)
@@ -200,15 +214,25 @@ def export_llamaindex_docs_to_pdf(url):
                 return [Paragraph(item, styles['CustomOrderedList']) for item in items]
             
             elif element.name in ['p', 'div']:
-                text = process_links(element)
-                text = remove_emojis(text)
-                if text:
-                    return [Paragraph(text, styles['Normal'])]
+                # Skip if this element contains a code block
+                if element.find(['pre', 'code']):
+                    code_blocks = element.find_all(['pre', 'code'])
+                    paragraphs = []
+                    for code_block in code_blocks:
+                        formatted_code = process_code_block(code_block.get_text())
+                        if formatted_code:
+                            paragraphs.append(Paragraph(formatted_code, styles['CodeStyle']))
+                    return paragraphs
+                else:
+                    text = process_links(element)
+                    text = remove_emojis(text)
+                    if text.strip():
+                        return [Paragraph(text, styles['Normal'])]
             
             return []
 
         # Process all elements
-        for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'code', 'ul', 'ol']):
+        for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'pre', 'code']):
             paragraphs = process_element(element)
             if paragraphs:
                 story.extend(paragraphs)
