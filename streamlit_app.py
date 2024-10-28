@@ -152,7 +152,7 @@ def process_list_items(list_element, ordered=False, level=0):
         content = content.strip()
         
         # Add the item with proper indentation and bullet
-        indent = '    ' * level
+        indent = '  ' * level
         bullet = f"{i}. " if ordered else "• "
         if content:
             result.append(f"{indent}{bullet}{content}")
