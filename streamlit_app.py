@@ -165,10 +165,10 @@ def process_links(element):
                 escaped_text = html.escape(link_text)
                 if href.startswith('#'):
                     # Internal link (anchor)
-                    text += f'<a href="#{escaped_href[1:]}" color="{CUSTOM_BLUE.hexval()[2:]}" underline="1">{escaped_text}</a>'
+                    text += f'<a href="#{escaped_href[1:]}" color="#{CUSTOM_BLUE.hexval()[2:]}" underline="1">{escaped_text}</a>'
                 else:
                     # External link
-                    text += f'<a href="{escaped_href}" color="{CUSTOM_BLUE.hexval()[2:]}" underline="1">{escaped_text}</a>'
+                    text += f'<a href="{escaped_href}" color="#{CUSTOM_BLUE.hexval()[2:]}" underline="1">{escaped_text}</a>'
             elif content.name == 'span':
                 span_text = content.get_text()
                 style = content.get('style', '')
