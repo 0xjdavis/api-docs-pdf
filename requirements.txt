@@ -4,3 +4,4 @@ reportlab
 #reportlab.platypus 
 #reportlab.lib.styles 
 bs4
+emoji
