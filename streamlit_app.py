@@ -37,7 +37,7 @@ def process_list_items(list_element, level=1):
     result = []
     items = list_element.find_all('li', recursive=False)
     
-    for item in enumerate(items, start=1):
+    for _, item in enumerate(items, start=1):  # Fixed: Properly unpack enumerate tuple
         # Process the main content of the list item
         content = ''
         for child in item.children:
