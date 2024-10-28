@@ -7,7 +7,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from bs4 import BeautifulSoup
 
 with open("styles.css") as f:
-    st.markdown(f'<style>{f.read}</style>', unsafe_allow_html=True')
+    st.markdown(f'<style>{f.read}</style>', unsafe_allow_html=True)
     
 def export_llamaindex_docs_to_pdf(url):
     # Fetch the HTML content
