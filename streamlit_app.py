@@ -7,8 +7,6 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
 from bs4 import BeautifulSoup, NavigableString
 import html
@@ -16,238 +14,98 @@ import html
 # Define custom blue color
 CUSTOM_BLUE = colors.HexColor('#0068c9')
 
-def remove_emojis(text):
-    """Remove emojis from text."""
-    return emoji.replace_emoji(text, '')
-
 def create_custom_styles():
     styles = getSampleStyleSheet()
     
-    if 'CodeStyle' not in styles:
-        code_style = ParagraphStyle(
-            'CodeStyle',
-            parent=styles['Normal'],
-            fontName='Courier',
-            fontSize=10,
-            leftIndent=20,
-            spaceAfter=10,
-            spaceBefore=10,
-            alignment=TA_LEFT,
-            backColor=colors.Color(0.95, 0.95, 0.95)
-        )
-        styles.add(code_style)
-    
-    if 'CustomUnorderedList' not in styles:
-        unordered_list_style = ParagraphStyle(
-            'CustomUnorderedList',
-            parent=styles['Normal'],
-            leftIndent=35,
-            bulletIndent=20,
-            spaceAfter=5
-        )
-        styles.add(unordered_list_style)
-    
-    if 'CustomOrderedList' not in styles:
-        ordered_list_style = ParagraphStyle(
-            'CustomOrderedList',
-            parent=styles['Normal'],
-            leftIndent=35,
-            bulletIndent=20,
-            spaceAfter=5
-        )
-        styles.add(ordered_list_style)
-    
-    if 'LinkStyle' not in styles:
-        link_style = ParagraphStyle(
-            'LinkStyle',
-            parent=styles['Normal'],
-            textColor=CUSTOM_BLUE,
-            underline=True
-        )
-        styles.add(link_style)
+    # Create styles for different list levels
+    for level in range(1, 4):  # Support up to 3 levels of nesting
+        style_name = f'UnorderedList_Level{level}'
+        if style_name not in styles:
+            list_style = ParagraphStyle(
+                style_name,
+                parent=styles['Normal'],
+                leftIndent=20 * level,  # Increase indentation for each level
+                bulletIndent=10 * level,
+                spaceAfter=5
+            )
+            styles.add(list_style)
     
     return styles
 
-class DocumentWithBookmarks(BaseDocTemplate):
-    def __init__(self, filename, **kwargs):
-        super().__init__(filename, **kwargs)
-        self.bookmarks = []
-        
-    def afterFlowable(self, flowable):
-        if getattr(flowable, 'bookmark_key', None) is not None:
-            self.bookmarks.append((flowable.bookmark_level, flowable.bookmark_key, self.page))
-
-def clean_code_block(code_text):
-    """Clean and format code block text."""
-    lines = [line.rstrip() for line in code_text.strip().split('\n')]
-    while lines and not lines[0].strip():
-        lines.pop(0)
-    while lines and not lines[-1].strip():
-        lines.pop()
-    return '\n'.join(lines)
-
-def process_code_block(code_text):
-    """Process a code block with proper formatting."""
-    cleaned_code = clean_code_block(code_text)
-    if not cleaned_code:
-        return ''
-    escaped_code = (cleaned_code
-                   .replace('&', '&amp;')
-                   .replace('<', '&lt;')
-                   .replace('>', '&gt;')
-                   .replace('\n', '<br/>'))
-    return f'<pre>{escaped_code}</pre>'
-
-def clean_heading_text(text):
-    text = remove_emojis(text)
-    return text.split('#')[0].strip()
-
-def process_links(element):
-    """Process anchor tags and span elements with styles."""
-    if isinstance(element, NavigableString):
-        return html.escape(str(element))
-    
-    if element.name == 'a':
-        href = element.get('href', '')
-        link_text = element.get_text()
-        escaped_href = html.escape(href)
-        escaped_text = html.escape(link_text)
-        if href.startswith('#'):
-            return f'<a href="#{escaped_href[1:]}" color="#{CUSTOM_BLUE.hexval()[2:]}" underline="1">{escaped_text}</a>'
-        else:
-            return f'<a href="{escaped_href}" color="#{CUSTOM_BLUE.hexval()[2:]}" underline="1">{escaped_text}</a>'
-    
-    text = ""
-    for child in element.children:
-        if isinstance(child, NavigableString):
-            text += html.escape(str(child))
-        elif child.name == 'span':
-            span_text = child.get_text()
-            style = child.get('style', '')
-            if 'font-size: 200%' in style:
-                text += f'<font size="14">{html.escape(span_text)}</font>'
-            else:
-                text += html.escape(span_text)
-        elif child.name not in ['pre', 'code']:
-            text += process_links(child)
-    
-    return text
-
-def process_list_items(list_element, ordered=False, level=0):
-    """Process list items with proper formatting."""
+def process_list_items(list_element, level=1):
+    """Process list items with proper indentation for nested lists."""
     result = []
     items = list_element.find_all('li', recursive=False)
     
-    for i, item in enumerate(items, start=1):
-        # Get the direct text content first
+    for item in enumerate(items, start=1):
+        # Process the main content of the list item
         content = ''
         for child in item.children:
             if isinstance(child, NavigableString):
                 content += str(child).strip()
             elif child.name == 'a':
-                content += process_links(child)
+                href = child.get('href', '')
+                link_text = child.get_text()
+                content += f'<link href="{href}">{link_text}</link>'
             elif child.name not in ['ul', 'ol']:
-                content += process_links(child)
+                content += child.get_text().strip()
         
-        content = content.strip()
-        
-        # Add the item with proper indentation and bullet
-        indent = '  ' * level
-        bullet = f"{i}. " if ordered else "• "
+        # Add the item with proper indentation
         if content:
-            result.append(f"{indent}{bullet}{content}")
+            bullet = "•" if level <= 3 else "○"  # Different bullet for deeper nesting
+            indent = "    " * (level - 1)
+            result.append(f"{indent}{bullet} {content}")
         
         # Process nested lists
-        for nested_list in item.find_all(['ul', 'ol'], recursive=False):
-            nested_items = process_list_items(
-                nested_list,
-                ordered=(nested_list.name == 'ol'),
-                level=level + 1
-            )
+        nested_lists = item.find_all(['ul', 'ol'], recursive=False)
+        for nested_list in nested_lists:
+            nested_items = process_list_items(nested_list, level + 1)
             result.extend(nested_items)
     
     return result
 
-def export_llamaindex_docs_to_pdf(url):
+def export_to_pdf(url):
     try:
         response = requests.get(url)
         response.raise_for_status()
-        html_content = response.text
-
-        soup = BeautifulSoup(html_content, 'html.parser')
-        main_content = soup.find('div', class_='md-content')
-        if not main_content:
-            raise Exception("Could not find main content div")
-
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Create PDF document
         buffer = io.BytesIO()
-        doc = DocumentWithBookmarks(buffer, pagesize=letter)
-        frame = Frame(doc.leftMargin, doc.bottomMargin,
-                     doc.width, doc.height,
-                     id='normal')
-        template = PageTemplate(id='main', frames=frame)
+        doc = BaseDocTemplate(buffer, pagesize=letter)
+        frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id='normal')
+        template = PageTemplate(id='main', frames=[frame])
         doc.addPageTemplates([template])
         
         styles = create_custom_styles()
         story = []
-        seen_elements = set()
-        seen_code_blocks = set()
-
-        def process_element(element):
-            element_id = id(element)
+        
+        # Process content
+        main_content = soup.find('div', class_='md-content')
+        if not main_content:
+            raise Exception("Could not find main content")
             
-            if element_id in seen_elements:
-                return None
-                
-            seen_elements.add(element_id)
-            
-            paragraphs = []
-            
-            if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-                style = styles['Heading' + element.name[1]]
-                clean_text = clean_heading_text(element.get_text())
-                p = Paragraph(clean_text, style)
-                if 'id' in element.attrs:
-                    p.bookmark_key = element['id']
-                    p.bookmark_level = int(element.name[1])
-                paragraphs.append(p)
-            
-            elif element.name in ['pre', 'code']:
-                code_content = element.get_text().strip()
-                if code_content and code_content not in seen_code_blocks:
-                    seen_code_blocks.add(code_content)
-                    formatted_code = process_code_block(code_content)
-                    if formatted_code:
-                        paragraphs.append(Paragraph(formatted_code, styles['CodeStyle']))
-            
-            elif element.name in ['ul', 'ol']:
-                if not element.find_parent(['ul', 'ol']):  # Only process top-level lists
-                    items = process_list_items(element, ordered=(element.name == 'ol'))
-                    style_name = 'CustomOrderedList' if element.name == 'ol' else 'CustomUnorderedList'
-                    for item in items:
-                        if item.strip():
-                            paragraphs.append(Paragraph(item, styles[style_name]))
-            
-            elif element.name in ['p', 'div']:
-                if not element.find_parent(['ul', 'ol']):
-                    text_content = process_links(element)
-                    if text_content.strip():
-                        paragraphs.append(Paragraph(text_content, styles['Normal']))
-            
-            return paragraphs
-
-        for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'pre', 'code', 'ul', 'ol']):
-            if not any(parent.name in ['ul', 'ol'] for parent in element.parents):
-                paragraphs = process_element(element)
-                if paragraphs:
-                    story.extend(paragraphs)
-                    story.append(Spacer(1, 6))
-
+        for element in main_content.find_all(['ul', 'ol', 'p', 'h1', 'h2', 'h3']):
+            if element.name in ['ul', 'ol']:
+                items = process_list_items(element)
+                for item in items:
+                    level = item.count('    ') + 1
+                    style = styles[f'UnorderedList_Level{min(level, 3)}']
+                    story.append(Paragraph(item, style))
+            else:
+                # Handle other elements (paragraphs, headings, etc.)
+                text = element.get_text().strip()
+                if text:
+                    style = styles['Normal']
+                    if element.name.startswith('h'):
+                        style = styles[f'Heading{element.name[1]}']
+                    story.append(Paragraph(text, style))
+        
+        # Build PDF
         doc.build(story)
         buffer.seek(0)
         return buffer
-    
-    except requests.RequestException as e:
-        raise Exception(f"Failed to fetch the webpage: {str(e)}")
+        
     except Exception as e:
         raise Exception(f"Error generating PDF: {str(e)}")
 
@@ -256,15 +114,15 @@ def get_binary_file_downloader_html(bin_file, file_label='File'):
     href = f'<a href="data:application/octet-stream;base64,{bin_str}" download="{file_label}">Download {file_label}</a>'
     return href
 
-st.title("LlamaIndex Documentation PDF Generator")
+st.title("Documentation PDF Generator")
 
 url = st.text_input("Enter URL", "https://docs.llamaindex.ai/en/stable/")
-st.write(f"This app generates a PDF from the documentation at the provided URL.")
+st.write("This app generates a PDF from the documentation at the provided URL.")
 
 if st.button("Generate PDF"):
     try:
         with st.spinner("Generating PDF..."):
-            pdf_buffer = export_llamaindex_docs_to_pdf(url)
+            pdf_buffer = export_to_pdf(url)
             
         st.success("PDF generated successfully!")
         st.markdown(
