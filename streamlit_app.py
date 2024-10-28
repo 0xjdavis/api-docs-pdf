@@ -4,6 +4,7 @@ import base64
 import io
 import emoji
 from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
@@ -50,6 +51,15 @@ def create_custom_styles():
         )
         styles.add(ordered_list_style)
     
+    if 'LinkStyle' not in styles:
+        link_style = ParagraphStyle(
+            'LinkStyle',
+            parent=styles['Normal'],
+            textColor=colors.blue,
+            underline=True
+        )
+        styles.add(link_style)
+    
     return styles
 
 def process_code_block(code_text):
@@ -65,7 +75,10 @@ def process_list_items(list_element, ordered=False):
     result = []
     for i, item in enumerate(list_element.find_all('li', recursive=False)):
         bullet = f"{i+1}." if ordered else "•"
-        text = remove_emojis(item.get_text().strip())
+        
+        # Process links within list items
+        text = process_links(item)
+        text = remove_emojis(text)
         
         # Handle nested lists
         nested_lists = item.find_all(['ul', 'ol'], recursive=False)
@@ -75,13 +88,31 @@ def process_list_items(list_element, ordered=False):
                     nested_list, 
                     ordered=(nested_list.name == 'ol')
                 )
-                text = text.replace(nested_list.get_text(), '')  # Remove nested list text from parent
+                raw_text = nested_list.get_text()
+                text = text.replace(raw_text, '')  # Remove nested list text from parent
                 result.append(f"{bullet} {text.strip()}")
-                result.extend([f"    {item}" for item in nested_items])  # Indent nested items
+                result.extend([f"    {nested_item}" for nested_item in nested_items])
         else:
             result.append(f"{bullet} {text}")
             
     return result
+
+def process_links(element):
+    """Process anchor tags and convert them to PDF internal links."""
+    text = ""
+    for content in element.contents:
+        if content.name == 'a':
+            href = content.get('href', '')
+            link_text = content.get_text()
+            if href.startswith('#'):
+                # Internal link
+                text += f'<link href="{href[1:]}">{link_text}</link>'
+            else:
+                # External link
+                text += f'<link href="{href}">{link_text}</link>'
+        else:
+            text += str(content)
+    return text
 
 def export_llamaindex_docs_to_pdf(url):
     try:
@@ -98,6 +129,7 @@ def export_llamaindex_docs_to_pdf(url):
         story = []
 
         seen_elements = set()
+        bookmarks = {}
 
         def process_element(element):
             element_id = id(element)
@@ -110,6 +142,9 @@ def export_llamaindex_docs_to_pdf(url):
             if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
                 style = styles['Heading' + element.name[1]]
                 clean_text = clean_heading_text(element.get_text())
+                # Store heading as bookmark
+                if 'id' in element.attrs:
+                    bookmarks[element['id']] = len(story)
                 return [Paragraph(clean_text, style)]
             
             elif element.name == 'code':
@@ -125,19 +160,26 @@ def export_llamaindex_docs_to_pdf(url):
                 return [Paragraph(item, styles['CustomOrderedList']) for item in items]
             
             elif element.name in ['p', 'div']:
-                text = remove_emojis(element.get_text().strip())
+                text = process_links(element)
+                text = remove_emojis(text)
                 if text:
                     return [Paragraph(text, styles['Normal'])]
             
             return []
 
+        # First pass: collect all headings and their positions
+        for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+            if 'id' in element.attrs:
+                bookmarks[element['id']] = len(story)
+
+        # Second pass: process all elements
         for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'code', 'ul', 'ol']):
             paragraphs = process_element(element)
             if paragraphs:
                 story.extend(paragraphs)
                 story.append(Spacer(1, 6))
 
-        doc.build(story)
+        doc.build(story, bookmarks=bookmarks)
         buffer.seek(0)
         return buffer
     
@@ -169,4 +211,4 @@ if st.button("Generate PDF"):
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
 
-st.write("Enter a URL and click 'Generate PDF' to create and download the documentation PDF.")
+st.write("Enter a URL and click 'Generate PDF' to create and download the documentation PDF with working internal links.")
