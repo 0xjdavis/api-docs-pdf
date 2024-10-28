@@ -11,6 +11,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
 from bs4 import BeautifulSoup, NavigableString
+import html
 
 # Define custom blue color
 CUSTOM_BLUE = colors.HexColor('#0068c9')
@@ -42,9 +43,7 @@ def create_custom_styles():
             parent=styles['Normal'],
             leftIndent=35,
             bulletIndent=20,
-            spaceAfter=5,
-            bulletFontName='Symbol',
-            bulletText='•'
+            spaceAfter=5
         )
         styles.add(unordered_list_style)
     
@@ -54,7 +53,7 @@ def create_custom_styles():
             parent=styles['Normal'],
             leftIndent=35,
             bulletIndent=20,
-            spaceAfter=5,
+            spaceAfter=5
         )
         styles.add(ordered_list_style)
     
@@ -103,18 +102,12 @@ def clean_heading_text(text):
     text = remove_emojis(text)
     return text.split('#')[0].strip()
 
-def process_list_items(list_element, ordered=False):
+def process_list_items(list_element, ordered=False, level=0):
     """Process list items with proper formatting."""
     result = []
     items = list_element.find_all('li', recursive=False)
     
     for i, item in enumerate(items, start=1):
-        # Initialize the bullet/number
-        if ordered:
-            bullet = f"{i}."
-        else:
-            bullet = "•"
-        
         # Process the item's content
         content_parts = []
         
@@ -122,70 +115,71 @@ def process_list_items(list_element, ordered=False):
         if item.string:
             content_parts.append(item.string.strip())
         
-        # Handle paragraphs within the item
-        for p in item.find_all('p', recursive=False):
-            text = process_links(p)
-            if text.strip():
-                content_parts.append(text.strip())
+        # Process immediate text nodes and inline elements
+        for content in item.children:
+            if isinstance(content, NavigableString):
+                text = content.strip()
+                if text:
+                    content_parts.append(text)
+            elif content.name not in ['ul', 'ol']:
+                text = process_links(content)
+                if text.strip():
+                    content_parts.append(text.strip())
+        
+        # Combine the main content
+        main_content = ' '.join(content_parts).strip()
+        
+        # Add the item with proper indentation and bullet
+        indent = '    ' * level
+        if ordered:
+            result.append(f"{indent}{i}. {main_content}")
+        else:
+            result.append(f"{indent}• {main_content}")
         
         # Handle nested lists
         nested_lists = item.find_all(['ul', 'ol'], recursive=False)
-        if nested_lists:
-            # Add the main content first
-            main_content = item.find(text=True, recursive=False)
-            if main_content:
-                content_parts.append(main_content.strip())
-            
-            # Process nested lists
-            for nested_list in nested_lists:
-                nested_items = process_list_items(
-                    nested_list, 
-                    ordered=(nested_list.name == 'ol')
-                )
-                # Add nested items with increased indentation
-                for nested_item in nested_items:
-                    content_parts.append('    ' + nested_item)
-        
-        # If no specific content was found, get all text
-        if not content_parts:
-            text = process_links(item)
-            if text.strip():
-                content_parts.append(text.strip())
-        
-        # Combine all parts and add to result
-        for part in content_parts:
-            if part.strip():
-                result.append(f"{bullet} {part.strip()}")
+        for nested_list in nested_lists:
+            nested_items = process_list_items(
+                nested_list,
+                ordered=(nested_list.name == 'ol'),
+                level=level + 1
+            )
+            result.extend(nested_items)
     
     return result
 
 def process_links(element):
     """Process anchor tags and span elements with styles."""
+    if isinstance(element, NavigableString):
+        return html.escape(str(element))
+    
     text = ""
     try:
         for content in element.contents:
             if isinstance(content, NavigableString):
-                text += str(content)
+                text += html.escape(str(content))
             elif content.name == 'a':
                 href = content.get('href', '')
                 link_text = content.get_text()
+                escaped_href = html.escape(href)
+                escaped_text = html.escape(link_text)
                 if href.startswith('#'):
-                    text += f'<link href="{href[1:]}" color="#{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
+                    text += f'<link href="{escaped_href[1:]}" color="#{CUSTOM_BLUE.hexval()[2:]}" underline="true">{escaped_text}</link>'
                 else:
-                    text += f'<link href="{href}" color="#{CUSTOM_BLUE.hexval()[2:]}">{link_text}</link>'
+                    text += f'<link href="{escaped_href}" color="#{CUSTOM_BLUE.hexval()[2:]}" underline="true">{escaped_text}</link>'
             elif content.name == 'span':
                 span_text = content.get_text()
                 style = content.get('style', '')
                 if 'font-size: 200%' in style:
-                    text += f'<font size="14">{span_text}</font>'
+                    text += f'<font size="14">{html.escape(span_text)}</font>'
                 else:
-                    text += span_text
+                    text += html.escape(span_text)
             elif content.name in ['pre', 'code']:
                 continue
             else:
-                text += content.get_text()
+                text += process_links(content)
     except AttributeError:
-        text += str(content)
+        text += html.escape(str(element))
     return text
 
 def export_llamaindex_docs_to_pdf(url):
