@@ -102,43 +102,63 @@ def clean_heading_text(text):
     text = remove_emojis(text)
     return text.split('#')[0].strip()
 
+def process_links(element):
+    """Process anchor tags and span elements with styles."""
+    if isinstance(element, NavigableString):
+        return html.escape(str(element))
+    
+    if element.name == 'a':
+        href = element.get('href', '')
+        link_text = element.get_text()
+        escaped_href = html.escape(href)
+        escaped_text = html.escape(link_text)
+        if href.startswith('#'):
+            return f'<a href="#{escaped_href[1:]}" color="#{CUSTOM_BLUE.hexval()[2:]}" underline="1">{escaped_text}</a>'
+        else:
+            return f'<a href="{escaped_href}" color="#{CUSTOM_BLUE.hexval()[2:]}" underline="1">{escaped_text}</a>'
+    
+    text = ""
+    for child in element.children:
+        if isinstance(child, NavigableString):
+            text += html.escape(str(child))
+        elif child.name == 'span':
+            span_text = child.get_text()
+            style = child.get('style', '')
+            if 'font-size: 200%' in style:
+                text += f'<font size="14">{html.escape(span_text)}</font>'
+            else:
+                text += html.escape(span_text)
+        elif child.name not in ['pre', 'code']:
+            text += process_links(child)
+    
+    return text
+
 def process_list_items(list_element, ordered=False, level=0):
     """Process list items with proper formatting."""
     result = []
     items = list_element.find_all('li', recursive=False)
     
     for i, item in enumerate(items, start=1):
-        # Process the item's content
-        content_parts = []
+        # Get the direct text content first
+        content = ''
+        for child in item.children:
+            if isinstance(child, NavigableString):
+                content += str(child).strip()
+            elif child.name == 'a':
+                content += process_links(child)
+            elif child.name not in ['ul', 'ol']:
+                content += process_links(child)
         
-        # Handle direct text content
-        if item.string:
-            content_parts.append(item.string.strip())
-        
-        # Process immediate text nodes and inline elements
-        for content in item.children:
-            if isinstance(content, NavigableString):
-                text = content.strip()
-                if text:
-                    content_parts.append(text)
-            elif content.name not in ['ul', 'ol']:
-                text = process_links(content)
-                if text.strip():
-                    content_parts.append(text.strip())
-        
-        # Combine the main content
-        main_content = ' '.join(content_parts).strip()
+        content = content.strip()
         
         # Add the item with proper indentation and bullet
         indent = '    ' * level
-        if ordered:
-            result.append(f"{indent}{i}. {main_content}")
-        else:
-            result.append(f"{indent}• {main_content}")
+        bullet = f"{i}. " if ordered else "• "
+        if content:
+            result.append(f"{indent}{bullet}{content}")
         
-        # Handle nested lists
-        nested_lists = item.find_all(['ul', 'ol'], recursive=False)
-        for nested_list in nested_lists:
+        # Process nested lists
+        for nested_list in item.find_all(['ul', 'ol'], recursive=False):
             nested_items = process_list_items(
                 nested_list,
                 ordered=(nested_list.name == 'ol'),
@@ -147,42 +167,6 @@ def process_list_items(list_element, ordered=False, level=0):
             result.extend(nested_items)
     
     return result
-
-def process_links(element):
-    """Process anchor tags and span elements with styles."""
-    if isinstance(element, NavigableString):
-        return html.escape(str(element))
-    
-    text = ""
-    try:
-        for content in element.contents:
-            if isinstance(content, NavigableString):
-                text += html.escape(str(content))
-            elif content.name == 'a':
-                href = content.get('href', '')
-                link_text = content.get_text()
-                escaped_href = html.escape(href)
-                escaped_text = html.escape(link_text)
-                if href.startswith('#'):
-                    # Internal link (anchor)
-                    text += f'<a href="#{escaped_href[1:]}" color="#{CUSTOM_BLUE.hexval()[2:]}" underline="1">{escaped_text}</a>'
-                else:
-                    # External link
-                    text += f'<a href="{escaped_href}" color="#{CUSTOM_BLUE.hexval()[2:]}" underline="1">{escaped_text}</a>'
-            elif content.name == 'span':
-                span_text = content.get_text()
-                style = content.get('style', '')
-                if 'font-size: 200%' in style:
-                    text += f'<font size="14">{html.escape(span_text)}</font>'
-                else:
-                    text += html.escape(span_text)
-            elif content.name in ['pre', 'code']:
-                continue
-            else:
-                text += process_links(content)
-    except AttributeError:
-        text += html.escape(str(content))
-    return text
 
 def export_llamaindex_docs_to_pdf(url):
     try:
@@ -218,7 +202,6 @@ def export_llamaindex_docs_to_pdf(url):
             
             paragraphs = []
             
-            # Handle headings
             if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
                 style = styles['Heading' + element.name[1]]
                 clean_text = clean_heading_text(element.get_text())
@@ -228,7 +211,6 @@ def export_llamaindex_docs_to_pdf(url):
                     p.bookmark_level = int(element.name[1])
                 paragraphs.append(p)
             
-            # Handle code blocks
             elif element.name in ['pre', 'code']:
                 code_content = element.get_text().strip()
                 if code_content and code_content not in seen_code_blocks:
@@ -237,45 +219,24 @@ def export_llamaindex_docs_to_pdf(url):
                     if formatted_code:
                         paragraphs.append(Paragraph(formatted_code, styles['CodeStyle']))
             
-            # Handle lists
             elif element.name in ['ul', 'ol']:
-                items = process_list_items(element, ordered=(element.name == 'ol'))
-                style_name = 'CustomOrderedList' if element.name == 'ol' else 'CustomUnorderedList'
-                for item in items:
-                    if item.strip():
-                        paragraphs.append(Paragraph(item, styles[style_name]))
+                if not element.find_parent(['ul', 'ol']):  # Only process top-level lists
+                    items = process_list_items(element, ordered=(element.name == 'ol'))
+                    style_name = 'CustomOrderedList' if element.name == 'ol' else 'CustomUnorderedList'
+                    for item in items:
+                        if item.strip():
+                            paragraphs.append(Paragraph(item, styles[style_name]))
             
-            # Handle paragraphs and divs
             elif element.name in ['p', 'div']:
-                # Skip if this element is part of a list
                 if not element.find_parent(['ul', 'ol']):
-                    # Process text content
                     text_content = process_links(element)
                     if text_content.strip():
                         paragraphs.append(Paragraph(text_content, styles['Normal']))
-                    
-                    # Process code blocks separately
-                    code_blocks = element.find_all(['pre', 'code'])
-                    for code_block in code_blocks:
-                        code_content = code_block.get_text().strip()
-                        if code_content and code_content not in seen_code_blocks:
-                            seen_code_blocks.add(code_content)
-                            formatted_code = process_code_block(code_content)
-                            if formatted_code:
-                                paragraphs.append(Paragraph(formatted_code, styles['CodeStyle']))
             
             return paragraphs
 
-        # Process all elements
         for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'pre', 'code', 'ul', 'ol']):
-            # Skip if element is a child of a processed element
-            parent_processed = False
-            for parent in element.parents:
-                if id(parent) in seen_elements:
-                    parent_processed = True
-                    break
-            
-            if not parent_processed:
+            if not any(parent.name in ['ul', 'ol'] for parent in element.parents):
                 paragraphs = process_element(element)
                 if paragraphs:
                     story.extend(paragraphs)
