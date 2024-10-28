@@ -1,12 +1,14 @@
 import streamlit as st
 import requests 
 import base64 
-import io
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 from bs4 import BeautifulSoup
 
+with open("styles.css") as f:
+    st.markdown(f'<style>{f.read}</style>', unsafe_allow_html=True')
+    
 def export_llamaindex_docs_to_pdf(url):
     # Fetch the HTML content
     response = requests.get(url)
