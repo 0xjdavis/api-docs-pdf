@@ -13,7 +13,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from bs4 import BeautifulSoup
 
 # Define custom blue color
-CUSTOM_BLUE = colors.HexColor('#0068c9')
+#CUSTOM_BLUE = colors.HexColor('#0068c9')
 
 def remove_emojis(text):
     """Remove emojis from text."""
@@ -60,7 +60,7 @@ def create_custom_styles():
         link_style = ParagraphStyle(
             'LinkStyle',
             parent=styles['Normal'],
-            textColor=CUSTOM_BLUE,  # Using our custom blue color
+            textColor="#0068c9",  # Using our custom blue color
             underline=True
         )
         styles.add(link_style)
