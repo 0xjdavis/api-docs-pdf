@@ -3,13 +3,13 @@ import requests
 import base64
 import io
 import emoji
-from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
-from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer
 from bs4 import BeautifulSoup, NavigableString
 
 # Define custom blue color
@@ -43,7 +43,8 @@ def create_custom_styles():
             leftIndent=35,
             bulletIndent=20,
             spaceAfter=5,
-            bulletFontName='Helvetica',
+            bulletFontName='Symbol',
+            bulletText='•'
         )
         styles.add(unordered_list_style)
     
@@ -103,23 +104,59 @@ def clean_heading_text(text):
     return text.split('#')[0].strip()
 
 def process_list_items(list_element, ordered=False):
+    """Process list items with proper formatting."""
     result = []
-    for i, item in enumerate(list_element.find_all('li', recursive=False)):
-        bullet = f"{i+1}." if ordered else "•"
-        
-        paragraphs = item.find_all('p')
-        if paragraphs:
-            for p in paragraphs:
-                text = process_links(p)
-                text = remove_emojis(text)
-                if text.strip():
-                    result.append(f"{bullet} {text.strip()}")
+    items = list_element.find_all('li', recursive=False)
+    
+    for i, item in enumerate(items, start=1):
+        # Initialize the bullet/number
+        if ordered:
+            bullet = f"{i}."
         else:
-            text = process_links(item)
-            text = remove_emojis(text)
+            bullet = "•"
+        
+        # Process the item's content
+        content_parts = []
+        
+        # Handle direct text content
+        if item.string:
+            content_parts.append(item.string.strip())
+        
+        # Handle paragraphs within the item
+        for p in item.find_all('p', recursive=False):
+            text = process_links(p)
             if text.strip():
-                result.append(f"{bullet} {text.strip()}")
+                content_parts.append(text.strip())
+        
+        # Handle nested lists
+        nested_lists = item.find_all(['ul', 'ol'], recursive=False)
+        if nested_lists:
+            # Add the main content first
+            main_content = item.find(text=True, recursive=False)
+            if main_content:
+                content_parts.append(main_content.strip())
             
+            # Process nested lists
+            for nested_list in nested_lists:
+                nested_items = process_list_items(
+                    nested_list, 
+                    ordered=(nested_list.name == 'ol')
+                )
+                # Add nested items with increased indentation
+                for nested_item in nested_items:
+                    content_parts.append('    ' + nested_item)
+        
+        # If no specific content was found, get all text
+        if not content_parts:
+            text = process_links(item)
+            if text.strip():
+                content_parts.append(text.strip())
+        
+        # Combine all parts and add to result
+        for part in content_parts:
+            if part.strip():
+                result.append(f"{bullet} {part.strip()}")
+    
     return result
 
 def process_links(element):
@@ -150,16 +187,6 @@ def process_links(element):
     except AttributeError:
         text += str(content)
     return text
-
-def get_text_content(element):
-    """Extract text content from element, excluding code blocks."""
-    text = ""
-    for content in element.contents:
-        if isinstance(content, NavigableString):
-            text += str(content)
-        elif content.name not in ['pre', 'code']:
-            text += content.get_text()
-    return text.strip()
 
 def export_llamaindex_docs_to_pdf(url):
     try:
@@ -215,35 +242,36 @@ def export_llamaindex_docs_to_pdf(url):
                         paragraphs.append(Paragraph(formatted_code, styles['CodeStyle']))
             
             # Handle lists
-            elif element.name == 'ul':
-                items = process_list_items(element, ordered=False)
-                paragraphs.extend([Paragraph(item, styles['CustomUnorderedList']) for item in items])
-            
-            elif element.name == 'ol':
-                items = process_list_items(element, ordered=True)
-                paragraphs.extend([Paragraph(item, styles['CustomOrderedList']) for item in items])
+            elif element.name in ['ul', 'ol']:
+                items = process_list_items(element, ordered=(element.name == 'ol'))
+                style_name = 'CustomOrderedList' if element.name == 'ol' else 'CustomUnorderedList'
+                for item in items:
+                    if item.strip():
+                        paragraphs.append(Paragraph(item, styles[style_name]))
             
             # Handle paragraphs and divs
             elif element.name in ['p', 'div']:
-                # Process text content
-                text_content = process_links(element)
-                if text_content.strip():
-                    paragraphs.append(Paragraph(text_content, styles['Normal']))
-                
-                # Process code blocks separately
-                code_blocks = element.find_all(['pre', 'code'])
-                for code_block in code_blocks:
-                    code_content = code_block.get_text().strip()
-                    if code_content and code_content not in seen_code_blocks:
-                        seen_code_blocks.add(code_content)
-                        formatted_code = process_code_block(code_content)
-                        if formatted_code:
-                            paragraphs.append(Paragraph(formatted_code, styles['CodeStyle']))
+                # Skip if this element is part of a list
+                if not element.find_parent(['ul', 'ol']):
+                    # Process text content
+                    text_content = process_links(element)
+                    if text_content.strip():
+                        paragraphs.append(Paragraph(text_content, styles['Normal']))
+                    
+                    # Process code blocks separately
+                    code_blocks = element.find_all(['pre', 'code'])
+                    for code_block in code_blocks:
+                        code_content = code_block.get_text().strip()
+                        if code_content and code_content not in seen_code_blocks:
+                            seen_code_blocks.add(code_content)
+                            formatted_code = process_code_block(code_content)
+                            if formatted_code:
+                                paragraphs.append(Paragraph(formatted_code, styles['CodeStyle']))
             
             return paragraphs
 
         # Process all elements
-        for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'pre', 'code']):
+        for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'pre', 'code', 'ul', 'ol']):
             # Skip if element is a child of a processed element
             parent_processed = False
             for parent in element.parents:
