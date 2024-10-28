@@ -1,56 +1,58 @@
+
 import streamlit as st
-from openai import OpenAI
+import requests
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
+from bs4 import BeautifulSoup
+import base64
+import io
 
-# Show title and description.
-st.title("💬 Chatbot")
-st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
-)
+def export_llamaindex_docs_to_pdf(url):
+    # Fetch the HTML content
+    response = requests.get(url)
+    html_content = response.text
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-else:
+    # Parse HTML content
+    soup = BeautifulSoup(html_content, 'html.parser')
+    main_content = soup.find('div', class_='md-content')
 
-    # Create an OpenAI client.
-    client = OpenAI(api_key=openai_api_key)
+    # Create PDF
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
 
-    # Create a session state variable to store the chat messages. This ensures that the
-    # messages persist across reruns.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    # Extract text and add to PDF
+    for element in main_content.find_all(['h1', 'h2', 'h3', 'p']):
+        if element.name.startswith('h'):
+            style = styles['Heading' + element.name[1]]
+        else:
+            style = styles['Normal']
+        story.append(Paragraph(element.get_text(), style))
 
-    # Display the existing chat messages via `st.chat_message`.
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
 
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
+def get_binary_file_downloader_html(bin_file, file_label='File'):
+    bin_str = base64.b64encode(bin_file.read()).decode()
+    href = f'<a href="data:application/octet-stream;base64,{bin_str}" download="{file_label}">Download {file_label}</a>'
+    return href
 
-        # Store and display the current prompt.
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+st.title("LlamaIndex Documentation PDF Generator")
 
-        # Generate a response using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-            stream=True,
-        )
+url = "https://docs.llamaindex.ai/en/stable/"
+st.write(f"This app generates a PDF from the LlamaIndex documentation at: {url}")
 
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
-        with st.chat_message("assistant"):
-            response = st.write_stream(stream)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+if st.button("Generate PDF"):
+    with st.spinner("Generating PDF..."):
+        pdf_buffer = export_llamaindex_docs_to_pdf(url)
+        
+    st.success("PDF generated successfully!")
+    
+    st.markdown(get_binary_file_downloader_html(pdf_buffer, "llamaindex_documentation.pdf"), unsafe_allow_html=True)
+
+st.write("Click the 'Generate PDF' button to create and download the LlamaIndex documentation PDF.")
+
