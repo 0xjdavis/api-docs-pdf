@@ -1,2 +1,6 @@
 streamlit
-openai
+reportlab
+reportlab.lib.pagesizes
+reportlab.platypus 
+reportlab.lib.styles 
+bs4
