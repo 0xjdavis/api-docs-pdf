@@ -1,6 +1,6 @@
 streamlit
 reportlab
-reportlab.lib.pagesizes
-reportlab.platypus 
-reportlab.lib.styles 
+#reportlab.lib.pagesizes
+#reportlab.platypus 
+#reportlab.lib.styles 
 bs4
