@@ -11,7 +11,6 @@ from bs4 import BeautifulSoup
 def create_custom_styles():
     styles = getSampleStyleSheet()
     
-    # Only add styles if they don't exist
     if 'CodeStyle' not in styles:
         code_style = ParagraphStyle(
             'CodeStyle',
@@ -25,7 +24,6 @@ def create_custom_styles():
         )
         styles.add(code_style)
     
-    # Create list styles only if they don't exist
     if 'CustomUnorderedList' not in styles:
         unordered_list_style = ParagraphStyle(
             'CustomUnorderedList',
@@ -58,22 +56,26 @@ def clean_heading_text(text):
     return text.split('#')[0].strip()
 
 def process_list_items(list_element, ordered=False):
-    items = []
+    result = []
     for i, item in enumerate(list_element.find_all('li', recursive=False)):
         bullet = f"{i+1}." if ordered else "•"
         text = item.get_text().strip()
+        
         # Handle nested lists
         nested_lists = item.find_all(['ul', 'ol'], recursive=False)
         if nested_lists:
-            text += '<br/>' + '<br/>'.join(
-                process_list_items(
+            for nested_list in nested_lists:
+                nested_items = process_list_items(
                     nested_list, 
                     ordered=(nested_list.name == 'ol')
                 )
-                for nested_list in nested_lists
-            )
-        items.append(f"{bullet} {text}")
-    return items
+                text = text.replace(nested_list.get_text(), '')  # Remove nested list text from parent
+                result.append(f"{bullet} {text.strip()}")
+                result.extend([f"    {item}" for item in nested_items])  # Indent nested items
+        else:
+            result.append(f"{bullet} {text}")
+            
+    return result
 
 def export_llamaindex_docs_to_pdf(url):
     try:
@@ -102,11 +104,11 @@ def export_llamaindex_docs_to_pdf(url):
             if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
                 style = styles['Heading' + element.name[1]]
                 clean_text = clean_heading_text(element.get_text())
-                return Paragraph(clean_text, style)
+                return [Paragraph(clean_text, style)]
             
             elif element.name == 'code':
                 formatted_code = process_code_block(element.get_text())
-                return Paragraph(formatted_code, styles['CodeStyle'])
+                return [Paragraph(formatted_code, styles['CodeStyle'])]
             
             elif element.name == 'ul':
                 items = process_list_items(element, ordered=False)
@@ -117,20 +119,16 @@ def export_llamaindex_docs_to_pdf(url):
                 return [Paragraph(item, styles['CustomOrderedList']) for item in items]
             
             elif element.name in ['p', 'div']:
-                style = styles['Normal']
                 text = element.get_text().strip()
-                if text:  # Only create paragraph if there's actual text
-                    return Paragraph(text, style)
+                if text:
+                    return [Paragraph(text, styles['Normal'])]
             
-            return None
+            return []
 
         for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'p', 'code', 'ul', 'ol']):
-            result = process_element(element)
-            if result:
-                if isinstance(result, list):
-                    story.extend(result)
-                else:
-                    story.append(result)
+            paragraphs = process_element(element)
+            if paragraphs:
+                story.extend(paragraphs)
                 story.append(Spacer(1, 6))
 
         doc.build(story)
